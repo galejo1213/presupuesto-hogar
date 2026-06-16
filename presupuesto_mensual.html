@@ -1,0 +1,327 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.app { padding: 1rem 0; max-width: 680px; }
+.header { margin-bottom: 1.5rem; }
+.header h1 { font-size: 20px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+.header p { font-size: 13px; color: var(--color-text-secondary); }
+.salarios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.5rem; }
+.sal-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 16px; }
+.sal-card .label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.sal-card .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-ella { background: #7F77DD; }
+.dot-yo { background: #1D9E75; }
+.dot-ambos { background: #888780; }
+.sal-input { width: 100%; font-size: 18px; font-weight: 500; color: var(--color-text-primary); background: transparent; border: none; outline: none; }
+.sal-input::placeholder { color: var(--color-text-tertiary); }
+.section { margin-bottom: 1rem; }
+.section-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); cursor: pointer; user-select: none; border: 0.5px solid var(--color-border-tertiary); }
+.section-header i { font-size: 16px; color: var(--color-text-secondary); }
+.section-title { font-size: 14px; font-weight: 500; color: var(--color-text-primary); flex: 1; }
+.section-total { font-size: 13px; color: var(--color-text-secondary); margin-right: 4px; }
+.section-chevron { font-size: 14px; color: var(--color-text-tertiary); transition: transform 0.2s; }
+.section-chevron.open { transform: rotate(180deg); }
+.items-container { border: 0.5px solid var(--color-border-tertiary); border-top: none; border-radius: 0 0 var(--border-radius-md) var(--border-radius-md); overflow: hidden; }
+.expense-row { display: grid; grid-template-columns: 1fr 110px 100px 36px; gap: 8px; align-items: center; padding: 9px 12px; border-bottom: 0.5px solid var(--color-border-tertiary); background: var(--color-background-primary); }
+.expense-row:last-child { border-bottom: none; }
+.expense-name { font-size: 13px; color: var(--color-text-primary); background: transparent; border: none; outline: none; width: 100%; }
+.expense-amount { font-size: 13px; color: var(--color-text-primary); background: transparent; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 5px 8px; width: 100%; text-align: right; outline: none; }
+.expense-amount:focus { border-color: var(--color-border-primary); }
+.payer-select { font-size: 12px; color: var(--color-text-primary); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 5px 6px; width: 100%; outline: none; cursor: pointer; }
+.payer-ella { background: #EEEDFE; color: #3C3489; border-color: #AFA9EC; }
+.payer-yo { background: #E1F5EE; color: #085041; border-color: #5DCAA5; }
+.payer-ambos { background: var(--color-background-secondary); color: var(--color-text-secondary); }
+.btn-delete { background: none; border: none; cursor: pointer; color: var(--color-text-tertiary); font-size: 15px; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: var(--border-radius-md); transition: color 0.15s, background 0.15s; }
+.btn-delete:hover { color: #E24B4A; background: #FCEBEB; }
+.add-row { padding: 8px 12px; }
+.btn-add { font-size: 12px; color: var(--color-text-secondary); background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: var(--border-radius-md); }
+.btn-add:hover { color: var(--color-text-primary); background: var(--color-background-secondary); }
+.resumen { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 0.5px solid var(--color-border-tertiary); }
+.resumen-titulo { font-size: 15px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 12px; }
+.resumen-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
+.res-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 12px 14px; }
+.res-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
+.res-value { font-size: 18px; font-weight: 500; }
+.res-value.total { color: #E24B4A; }
+.res-value.disponible-ella { color: #534AB7; }
+.res-value.disponible-yo { color: #0F6E56; }
+.desglose { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.desg-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 16px; }
+.desg-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.desg-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
+.desg-row.total-row { font-weight: 500; color: var(--color-text-primary); border-top: 0.5px solid var(--color-border-tertiary); padding-top: 6px; margin-top: 6px; }
+.disponible-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 6px; color: var(--color-text-secondary); }
+.disponible-amount { font-weight: 500; }
+.disponible-amount.positivo { color: #0F6E56; }
+.disponible-amount.negativo { color: #A32D2D; }
+</style>
+
+<div class="app">
+  <div class="header">
+    <h1>Presupuesto mensual</h1>
+    <p>Gestiona los gastos del hogar entre los dos</p>
+  </div>
+
+  <div class="salarios">
+    <div class="sal-card">
+      <div class="label"><span class="dot dot-ella"></span> Salario de ella</div>
+      <input class="sal-input" type="number" id="sal-ella" placeholder="0" value="">
+    </div>
+    <div class="sal-card">
+      <div class="label"><span class="dot dot-yo"></span> Salario de él</div>
+      <input class="sal-input" type="number" id="sal-yo" placeholder="0" value="">
+    </div>
+  </div>
+
+  <div id="sections-container"></div>
+
+  <div class="resumen">
+    <p class="resumen-titulo">Resumen del mes</p>
+    <div class="resumen-grid">
+      <div class="res-card">
+        <div class="res-label"><i class="ti ti-receipt" aria-hidden="true"></i> Total gastos</div>
+        <div class="res-value total" id="total-gastos">$0</div>
+      </div>
+      <div class="res-card">
+        <div class="res-label"><span class="dot dot-ella"></span> Disponible ella</div>
+        <div class="res-value disponible-ella" id="disp-ella">$0</div>
+      </div>
+      <div class="res-card">
+        <div class="res-label"><span class="dot dot-yo"></span> Disponible él</div>
+        <div class="res-value disponible-yo" id="disp-yo">$0</div>
+      </div>
+    </div>
+    <div class="desglose">
+      <div class="desg-card">
+        <div class="desg-title"><span class="dot dot-ella"></span> Ella paga</div>
+        <div id="detalle-ella"></div>
+      </div>
+      <div class="desg-card">
+        <div class="desg-title"><span class="dot dot-yo"></span> Él paga</div>
+        <div id="detalle-yo"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CATEGORIES = [
+  { id: 'hogar', label: 'Hogar', icon: 'ti-home' },
+  { id: 'comida', label: 'Comida y supermercado', icon: 'ti-shopping-cart' },
+  { id: 'mascota', label: 'Mascota', icon: 'ti-paw' },
+  { id: 'vehiculo', label: 'Vehículo', icon: 'ti-car' },
+  { id: 'compras', label: 'Compras', icon: 'ti-shopping-bag' },
+  { id: 'tarjetas', label: 'Tarjetas de crédito', icon: 'ti-credit-card' },
+  { id: 'creditos', label: 'Créditos y préstamos', icon: 'ti-building-bank' },
+  { id: 'suscripciones', label: 'Plataformas y suscripciones', icon: 'ti-device-tv' },
+  { id: 'medicos', label: 'Médicos y salud', icon: 'ti-heart-rate-monitor' },
+  { id: 'restaurantes', label: 'Restaurantes y café', icon: 'ti-coffee' },
+  { id: 'otros', label: 'Otros gastos', icon: 'ti-dots-circle-horizontal' },
+];
+
+const DEFAULT_ITEMS = {
+  hogar: [{ name: 'Renta', amount: '', payer: 'ambos' }, { name: 'Servicios públicos', amount: '', payer: 'ambos' }, { name: 'Internet', amount: '', payer: 'ambos' }],
+  comida: [{ name: 'Supermercado semanal', amount: '', payer: 'ambos' }],
+  mascota: [{ name: 'Comida mascota', amount: '', payer: 'ambos' }, { name: 'Veterinario', amount: '', payer: 'ambos' }],
+  vehiculo: [{ name: 'Gasolina', amount: '', payer: 'yo' }, { name: 'Seguro vehículo', amount: '', payer: 'yo' }],
+  compras: [{ name: 'Ropa y accesorios', amount: '', payer: 'ella' }],
+  tarjetas: [{ name: 'Tarjeta de crédito', amount: '', payer: 'ella' }],
+  creditos: [{ name: 'Crédito personal', amount: '', payer: 'yo' }],
+  suscripciones: [{ name: 'Netflix', amount: '', payer: 'ambos' }, { name: 'Spotify', amount: '', payer: 'ella' }],
+  medicos: [{ name: 'Seguro médico', amount: '', payer: 'ambos' }],
+  restaurantes: [{ name: 'Salidas a comer', amount: '', payer: 'ambos' }],
+  otros: [{ name: 'Gastos imprevistos', amount: '', payer: 'ambos' }],
+};
+
+let state = {
+  salElla: '',
+  salYo: '',
+  open: { hogar: true },
+  items: JSON.parse(JSON.stringify(DEFAULT_ITEMS)),
+};
+
+function fmt(n) {
+  if (isNaN(n) || n === null) return '$0';
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+
+function parseNum(v) {
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function catTotal(catId) {
+  return state.items[catId].reduce((s, it) => s + parseNum(it.amount), 0);
+}
+
+function render() {
+  const container = document.getElementById('sections-container');
+  container.innerHTML = '';
+
+  CATEGORIES.forEach(cat => {
+    const sec = document.createElement('div');
+    sec.className = 'section';
+    const total = catTotal(cat.id);
+    const isOpen = !!state.open[cat.id];
+
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.style.borderRadius = isOpen ? 'var(--border-radius-md) var(--border-radius-md) 0 0' : 'var(--border-radius-md)';
+    header.innerHTML = `<i class="ti ${cat.icon}" aria-hidden="true"></i><span class="section-title">${cat.label}</span><span class="section-total">${total > 0 ? fmt(total) : ''}</span><i class="ti ti-chevron-down section-chevron ${isOpen ? 'open' : ''}"></i>`;
+    header.addEventListener('click', () => {
+      state.open[cat.id] = !state.open[cat.id];
+      render();
+    });
+    sec.appendChild(header);
+
+    if (isOpen) {
+      const itemsDiv = document.createElement('div');
+      itemsDiv.className = 'items-container';
+
+      state.items[cat.id].forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'expense-row';
+
+        const nameIn = document.createElement('input');
+        nameIn.className = 'expense-name';
+        nameIn.type = 'text';
+        nameIn.value = item.name;
+        nameIn.placeholder = 'Nombre del gasto';
+        nameIn.addEventListener('change', e => { state.items[cat.id][idx].name = e.target.value; updateTotals(); });
+
+        const amtIn = document.createElement('input');
+        amtIn.className = 'expense-amount';
+        amtIn.type = 'number';
+        amtIn.value = item.amount;
+        amtIn.placeholder = '0';
+        amtIn.addEventListener('input', e => { state.items[cat.id][idx].amount = e.target.value; updateTotals(); });
+
+        const payerSel = document.createElement('select');
+        payerSel.className = 'payer-select';
+        const payerClass = item.payer === 'ella' ? 'payer-ella' : item.payer === 'yo' ? 'payer-yo' : 'payer-ambos';
+        payerSel.className = 'payer-select ' + payerClass;
+        ['ella', 'yo', 'ambos'].forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = p === 'ella' ? 'Ella' : p === 'yo' ? 'Él' : 'Ambos';
+          if (p === item.payer) opt.selected = true;
+          payerSel.appendChild(opt);
+        });
+        payerSel.addEventListener('change', e => {
+          state.items[cat.id][idx].payer = e.target.value;
+          render();
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-delete';
+        delBtn.innerHTML = '<i class="ti ti-trash" aria-hidden="true"></i>';
+        delBtn.title = 'Eliminar';
+        delBtn.addEventListener('click', () => {
+          state.items[cat.id].splice(idx, 1);
+          render();
+        });
+
+        row.appendChild(nameIn);
+        row.appendChild(amtIn);
+        row.appendChild(payerSel);
+        row.appendChild(delBtn);
+        itemsDiv.appendChild(row);
+      });
+
+      const addRow = document.createElement('div');
+      addRow.className = 'add-row';
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn-add';
+      addBtn.innerHTML = '<i class="ti ti-plus" aria-hidden="true"></i> Agregar gasto';
+      addBtn.addEventListener('click', () => {
+        state.items[cat.id].push({ name: '', amount: '', payer: 'ambos' });
+        state.open[cat.id] = true;
+        render();
+        setTimeout(() => {
+          const rows = document.querySelectorAll('.expense-row');
+          const last = rows[rows.length - 1];
+          if (last) last.querySelector('input')?.focus();
+        }, 50);
+      });
+      addRow.appendChild(addBtn);
+      itemsDiv.appendChild(addRow);
+      sec.appendChild(itemsDiv);
+    }
+
+    container.appendChild(sec);
+  });
+
+  updateTotals();
+}
+
+function updateTotals() {
+  let totalGastos = 0;
+  let totalElla = 0;
+  let totalYo = 0;
+
+  const detElla = {};
+  const detYo = {};
+
+  CATEGORIES.forEach(cat => {
+    let catElla = 0, catYo = 0;
+    state.items[cat.id].forEach(it => {
+      const amt = parseNum(it.amount);
+      if (!amt) return;
+      totalGastos += amt;
+      if (it.payer === 'ella') { totalElla += amt; catElla += amt; }
+      else if (it.payer === 'yo') { totalYo += amt; catYo += amt; }
+      else { totalElla += amt / 2; totalYo += amt / 2; catElla += amt / 2; catYo += amt / 2; }
+    });
+    if (catElla > 0) detElla[cat.label] = catElla;
+    if (catYo > 0) detYo[cat.label] = catYo;
+  });
+
+  const salElla = parseNum(document.getElementById('sal-ella').value);
+  const salYo = parseNum(document.getElementById('sal-yo').value);
+  const dispElla = salElla - totalElla;
+  const dispYo = salYo - totalYo;
+
+  document.getElementById('total-gastos').textContent = fmt(totalGastos);
+
+  const ellaEl = document.getElementById('disp-ella');
+  ellaEl.textContent = fmt(dispElla);
+  ellaEl.className = 'res-value disponible-ella';
+
+  const yoEl = document.getElementById('disp-yo');
+  yoEl.textContent = fmt(dispYo);
+  yoEl.className = 'res-value disponible-yo';
+
+  function renderDetalle(obj, total, container) {
+    container.innerHTML = '';
+    if (Object.keys(obj).length === 0) {
+      container.innerHTML = '<div style="font-size:12px; color: var(--color-text-tertiary);">Sin gastos asignados</div>';
+      return;
+    }
+    Object.entries(obj).forEach(([label, amt]) => {
+      const row = document.createElement('div');
+      row.className = 'desg-row';
+      row.innerHTML = `<span>${label}</span><span>${fmt(amt)}</span>`;
+      container.appendChild(row);
+    });
+    const totRow = document.createElement('div');
+    totRow.className = 'desg-row total-row';
+    totRow.innerHTML = `<span>Total pagos</span><span>${fmt(total)}</span>`;
+    container.appendChild(totRow);
+  }
+
+  renderDetalle(detElla, totalElla, document.getElementById('detalle-ella'));
+  renderDetalle(detYo, totalYo, document.getElementById('detalle-yo'));
+
+  const secHeaders = document.querySelectorAll('.section-total');
+  secHeaders.forEach((el, i) => {
+    const total = catTotal(CATEGORIES[i].id);
+    el.textContent = total > 0 ? fmt(total) : '';
+  });
+}
+
+document.getElementById('sal-ella').addEventListener('input', updateTotals);
+document.getElementById('sal-yo').addEventListener('input', updateTotals);
+
+render();
+</script>
