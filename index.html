@@ -315,7 +315,12 @@ function saveToFirebase(){
   d.salY = document.getElementById('sal-y').value;
   d.items = window._items;
   allMonthsData[currentMonth] = d;
-  db.ref('presupuesto/'+currentMonth).set(d);
+  suppressRemoteUpdate = true;
+  clearTimeout(window._suppressT);
+  db.ref('presupuesto/'+currentMonth).set(d).finally(()=>{
+    // Give Firebase's own echo a moment to arrive and be ignored
+    window._suppressT = setTimeout(()=>{ suppressRemoteUpdate = false; }, 400);
+  });
 }
 
 function saveAndUpdate(){ saveToFirebase(); updateTotals(); }
@@ -403,15 +408,22 @@ function parseN(v){
   return isNaN(n)?0:n;
 }
 function handleAmountInput(el){
-  let v = el.value;
-  v = v.replace(/[^0-9.,]/g,'');
+  const original = el.value;
+  let selStart = el.selectionStart;
+  let v = original.replace(/[^0-9.,]/g,'');
   const parts = v.split(/[.,]/);
   if(parts.length > 2){
     const sep = v.includes(',') && v.lastIndexOf(',') > v.lastIndexOf('.') ? ',' : '.';
     const lastSepIdx = v.lastIndexOf(sep);
     v = v.slice(0,lastSepIdx).replace(/[.,]/g,'') + sep + v.slice(lastSepIdx+1);
   }
-  el.value = v;
+  if(v !== original){
+    // Recalculate cursor position based on how many chars were stripped before it
+    const removedBefore = original.slice(0, selStart).length - original.slice(0, selStart).replace(/[^0-9.,]/g,'').length;
+    el.value = v;
+    const newPos = Math.max(0, selStart - removedBefore);
+    el.setSelectionRange(newPos, newPos);
+  }
 }
 function catTotal(id){ return (window._items[id]||[]).reduce((s,it)=>s+parseN(it.a),0); }
 
@@ -423,6 +435,7 @@ function render(){
     const total = catTotal(cat.id);
     const sec = document.createElement('div');
     sec.className = 'section';
+    sec.dataset.catId = cat.id;
 
     const hdr = document.createElement('div');
     hdr.className = 'sec-header'+(isOpen?' open':'');
@@ -522,6 +535,16 @@ function updateTotals(){
   }
   fillDet(dE,totE,document.getElementById('det-e'));
   fillDet(dY,totY,document.getElementById('det-y'));
+
+  // Update each category's subtotal text in place, without rebuilding inputs
+  document.querySelectorAll('.section').forEach(sec=>{
+    const subEl = sec.querySelector('.sec-subtotal');
+    const catId = sec.dataset.catId;
+    if(subEl && catId){
+      const t = catTotal(catId);
+      subEl.textContent = t>0 ? fmt(t) : '';
+    }
+  });
 
   const all = getAllMonths().filter(k=>k!==currentMonth);
   const hl = document.getElementById('hist-list');
