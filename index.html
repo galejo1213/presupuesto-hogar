@@ -59,7 +59,7 @@ button,input{font-family:inherit}
 .fig-val.c-gastado{color:var(--ink)}
 .fig-val.c-over{color:var(--alert)}
 .balance-track{position:relative;height:10px;background:var(--track);border-radius:6px;margin:34px 0 30px;overflow:visible}
-.balance-fill{position:absolute;left:0;top:0;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--el),#3AA57F);transition:width .3s ease,background .3s ease}
+.balance-fill{position:absolute;left:0;top:0;width:100%;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--el),#3AA57F);transform:scaleX(0);transform-origin:left center;transition:transform .3s ease,background .3s ease}
 .balance-fill.over{background:linear-gradient(90deg,var(--alert),#D9724A)}
 .balance-marker{position:absolute;top:-10px;bottom:-10px;width:2px;transform:translateX(-1px);display:none}
 .balance-marker.show{display:block}
@@ -565,7 +565,7 @@ function renderBalance(){
 
   const scale = Math.max(ganado, presu, gastado, 1);
   const fill = document.getElementById('balance-fill');
-  fill.style.width = Math.min(100,(gastado/scale)*100)+'%';
+  fill.style.transform = 'scaleX('+(Math.min(100,(gastado/scale)*100)/100)+')';
   fill.className = 'balance-fill'+(presu>0 && gastado>presu?' over':'');
   const mPresu = document.getElementById('marker-presu');
   const mGanado = document.getElementById('marker-ganado');
