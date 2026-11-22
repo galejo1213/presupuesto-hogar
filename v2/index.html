@@ -114,7 +114,7 @@ main{max-width:560px;margin:0 auto;padding:4px 16px calc(var(--tab) + var(--safe
 .day{flex:none;width:34px;text-align:center;font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:17px;line-height:1}
 .flabel{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .flabel b{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pill{align-self:flex-start;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--line-2);color:var(--ink-2)}
+.pill{font-style:normal;align-self:flex-start;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--line-2);color:var(--ink-2)}
 .st-pagado .pill{background:var(--ok-soft);color:var(--ok)}
 .st-pagado .flabel b,.st-pagado .amt{color:var(--ink-3)}
 .st-atrasado .pill{background:var(--bad-soft);color:var(--bad)}
@@ -131,6 +131,14 @@ main{max-width:560px;margin:0 auto;padding:4px 16px calc(var(--tab) + var(--safe
 .cmid span{display:block;font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cbar{height:4px;border-radius:2px;background:var(--track);margin-top:6px;overflow:hidden}
 .cbar i{display:block;height:100%;background:var(--ok);border-radius:2px}
+.cbar.over i{background:var(--bad)}
+.flabel .cbar{margin-top:2px}
+.st-parcial .pill{background:var(--warn-soft);color:var(--warn)}
+.paid{border-top:1px solid var(--line-2);margin-top:4px}
+.paid summary{list-style:none;cursor:pointer;padding:12px 0 8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.paid summary::-webkit-details-marker{display:none}
+.paid summary::before{content:'›';display:inline-block;margin-right:8px;transition:transform .2s}
+.paid[open] summary::before{transform:rotate(90deg)}
 .day-h{font-size:12px;font-weight:700;color:var(--ink-3);margin:16px 4px 6px}
 .day-h::first-letter{text-transform:uppercase}
 .tag{font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;background:var(--line-2);color:var(--ink-2);margin-left:6px;vertical-align:1px}
@@ -284,7 +292,7 @@ const DEFAULT_CATS = {
   ocio:{label:'Ocio',icon:'☕',orden:4,subs:{restaurante:'Restaurante',cafe:'Café'}},
   otros:{label:'Otros',icon:'📦',orden:5,subs:{imprevisto:'Imprevisto'}},
 };
-const SEED_FIJOS = [['Renta','hogar'],['Crédito del carro','vehiculo'],['Internet','hogar'],['Luz','hogar']];
+const PLAN_MONTH = '2026-12'; // first month run as plan + payments; its v1 amounts become the plan
 const EMOJIS = ['🏠','🛒','🐾','🚗','🛍️','💳','🏦','📱','❤️','☕','📦','💰','🎓','🎁','✈️','🎉','🧒','🏋️','🎮','🌱','🔧','💡','📚','🍷'];
 
 /* ======================= WRITES ======================= */
@@ -330,8 +338,43 @@ async function onData(snap){
   meses = v.meses || {};
   if(!meses[TODAY_KEY()]){ return createMonth(TODAY_KEY()); }
   if(!meses[cur]) cur = TODAY_KEY();
-  if(!ready){ ready = true; show('s-app'); handleDeepLink(); }
+  if(!ready){ ready = true; show('s-app'); if(config.version !== 3) migracionSheet(); else handleDeepLink(); }
   render();
+}
+
+// One-time switch to the plan model: the v1 December amounts become December's plan (nothing paid yet),
+// and the lines they mark "Cada mes" become the recurring plan for the following months.
+async function migracionSheet(){
+  let gastos = (meses[PLAN_MONTH] || {}).gastos, imported = null;
+  if(!gastos || !Object.keys(gastos).length){
+    try { imported = L.importV1({[PLAN_MONTH]: (await db.ref('meses/' + PLAN_MONTH).get()).val()}, null).meses[PLAN_MONTH]; } catch(e){}
+    gastos = imported && imported.gastos;
+  }
+  const lines = L.planFromGastos(gastos, config.categorias);
+  const rec = lines.map(() => true);
+  const finish = () => {
+    const tpl = {}, plan = {}, upd = {'config/version': 3};
+    lines.forEach((l, i) => { const id = uid(); plan[id] = l; if(rec[i]) tpl[id] = l; });
+    upd['config/fijos'] = tpl;
+    if(meses[PLAN_MONTH]){ upd['meses/' + PLAN_MONTH + '/fijos'] = plan; upd['meses/' + PLAN_MONTH + '/gastos'] = null; }
+    else if(lines.length) upd['meses/' + PLAN_MONTH] = Object.assign({}, imported, {fijos: plan, gastos: {}});
+    // Lines from the old model (fixed payments with a paid flag) don't apply anymore.
+    Object.keys(meses).forEach(k => { if(k !== PLAN_MONTH) upd['meses/' + k + '/fijos'] = k > PLAN_MONTH ? tpl : null; });
+    patch(upd).then(() => { closeSheet(); cur = meses[PLAN_MONTH] || lines.length ? PLAN_MONTH : cur; render(); toast('Plan creado'); });
+  };
+  if(!lines.length) return finish();
+  const row = (l, i) => { const c = cat(l.catId) || {icon: '•', label: ''}; return `<div class="list-row"><span class="cico">${esc(c.icon)}</span><span class="grow">${esc(l.label)}<br><span class="muted">${esc(c.label)} · <span class="m">${fmt(l.monto)}</span></span></span><button type="button" class="chip on" data-i="${i}">Cada mes</button></div>`; };
+  openSheet('Plan de ' + L.monthLabel(PLAN_MONTH), `
+    <p style="color:var(--ink-2);margin-bottom:12px">Lo que tenían en la v1 para ${L.monthName(PLAN_MONTH).toLowerCase()} pasa a ser <b>el plan del mes</b>, sin nada pagado todavía. Toquen <b>Cada mes</b> en lo que es solo de ${L.monthName(PLAN_MONTH).toLowerCase()} para que no se repita en los meses siguientes.</p>
+    <div class="card" style="padding:2px 12px">${lines.map(row).join('')}</div>
+    <div class="actions"><button class="btn btn-dark btn-block" id="mg-ok">Crear plan</button></div>`, b => {
+    b.onclick = e => {
+      const c = e.target.closest('[data-i]'); if(!c) return;
+      const i = +c.dataset.i; rec[i] = !rec[i];
+      c.classList.toggle('on', rec[i]); c.textContent = rec[i] ? 'Cada mes' : 'Solo ' + L.monthName(PLAN_MONTH).toLowerCase();
+    };
+    b.querySelector('#mg-ok').onclick = finish;
+  });
 }
 
 // First run: import v1 data once (if any), else start with defaults.
@@ -342,12 +385,8 @@ async function bootstrap(v){
   let v1m = null, v1c = null;
   try { [v1m, v1c] = (await Promise.all([db.ref('meses').get(), db.ref('categorias').get()])).map(s => s.val()); } catch(e){}
   const imp = L.importV1(v1m, v1c);
-  const fijos = {};
-  const catIds = Object.keys(Object.keys(imp.categorias).length ? imp.categorias : DEFAULT_CATS);
-  SEED_FIJOS.forEach(([label, c]) => fijos[uid()] = {label, monto: 0, dia: 1, catId: catIds.includes(c) ? c : ''});
   const upd = {config: {
     categorias: Object.keys(imp.categorias).length ? imp.categorias : DEFAULT_CATS,
-    fijos,
     personas: {p1: {nombre: '', base: 0}, p2: {nombre: '', base: 0}},
   }};
   if(!v.meses) Object.entries(imp.meses).forEach(([k, m]) => upd['meses/' + k] = m);
@@ -377,10 +416,6 @@ function render(){
   $('view').innerHTML = banner + ({inicio: vInicio, mov: vMov, ajustes: vAjustes})[view]();
 }
 
-function fijosOrdenados(){
-  return Object.entries(M().fijos || {}).sort((a, b) => (a[1].pagado - b[1].pagado) || ((a[1].dia || 1) - (b[1].dia || 1)));
-}
-
 function vInicio(){
   const t = L.totals(M());
   let h = '';
@@ -389,7 +424,7 @@ function vInicio(){
   // balance
   const scale = Math.max(t.ingresos, t.proyeccion, t.presupuestado, 1);
   const pc = n => (n / scale * 100).toFixed(2) + '%';
-  const vs = t.presupuestado
+  const vs = t.presupuestado && Math.abs(t.vsPresupuesto) < 0.5 ? "La proyección coincide con el presupuesto" : t.presupuestado
     ? (t.vsPresupuesto >= 0 ? `Proyección <strong class="ok m">${fmt(t.vsPresupuesto)}</strong> por debajo del presupuesto` : `Proyección <strong class="bad m">${fmt(-t.vsPresupuesto)}</strong> por encima del presupuesto`)
     : 'Aún no hay presupuesto para variables';
   h += `<section class="card">
@@ -397,49 +432,53 @@ function vInicio(){
     <div class="bal-big num m ${t.disponible < 0 ? 'neg' : ''}">${fmt(Math.abs(t.disponible))}</div>
     <div class="bal-sub">si pagan todo lo previsto este mes</div>
     <div class="bar" role="img" aria-label="Gastado ${fmt(t.gastado)}, por pagar ${fmt(t.pendiente)}, ingresos ${fmt(t.ingresos)}">
-      <i class="seg s-fijo" style="width:${pc(t.fijosPagado)}"></i><i class="seg s-var" style="width:${pc(t.variables)}"></i><i class="seg s-pend" style="width:${pc(t.pendiente)}"></i>
+      <i class="seg s-fijo" style="width:${pc(t.enPlan)}"></i><i class="seg s-var" style="width:${pc(t.fueraPlan)}"></i><i class="seg s-pend" style="width:${pc(t.pendiente)}"></i>
       ${t.ingresos ? `<b class="mk mk-ing" style="left:${pc(t.ingresos)}"></b>` : ''}${t.presupuestado ? `<b class="mk mk-pre" style="left:${pc(t.presupuestado)}"></b>` : ''}
     </div>
-    <div class="legend"><span><i style="background:var(--ink)"></i>Fijos pagados</span><span><i style="background:var(--ok)"></i>Variables</span><span><i style="background:#CFC4AE"></i>Por pagar</span><span><i style="background:var(--p1);width:2px"></i>Ingresos</span>${t.presupuestado ? '<span><i style="background:var(--ink-2);width:2px"></i>Presupuesto</span>' : ''}</div>
+    <div class="legend"><span><i style="background:var(--ink)"></i>Pagado del plan</span><span><i style="background:var(--ok)"></i>Fuera del plan</span><span><i style="background:#CFC4AE"></i>Por pagar</span><span><i style="background:var(--p1);width:2px"></i>Ingresos</span>${t.presupuestado ? '<span><i style="background:var(--ink-2);width:2px"></i>Presupuesto</span>' : ''}</div>
     <div class="figs">
       <button class="fig tap" data-act="ingresos"><span class="eyebrow">Ingresos</span><b class="m">${fmt(t.ingresos)}</b></button>
-      <div class="fig"><span class="eyebrow">Gastado</span><b class="m">${fmt(t.gastado)}</b></div>
+      <div class="fig"><span class="eyebrow">Pagado</span><b class="m">${fmt(t.gastado)}</b></div>
       <div class="fig"><span class="eyebrow">Por pagar</span><b class="m">${fmt(t.pendiente)}</b></div>
     </div>
     <button class="vs" data-act="presu">${vs}</button>
   </section>`;
 
-  // fixed payments
-  const fijos = fijosOrdenados();
-  const pagados = fijos.filter(([, f]) => f.pagado).length;
-  h += `<section class="card"><div class="sec-h"><h2>Pagos fijos</h2><span class="muted">${fijos.length ? pagados + ' de ' + fijos.length + ' pagados' : ''}</span></div>`;
-  if(!fijos.length){
-    h += Object.keys(config.fijos || {}).length
-      ? `<p class="empty">Este mes no tiene pagos fijos.</p><button class="btn btn-soft btn-block" data-act="cargarFijos">Cargar pagos fijos de la plantilla</button>`
-      : `<p class="empty">Agrega en Ajustes los pagos que se repiten cada mes (renta, crédito, internet…).</p>`;
-  }
-  fijos.forEach(([id, f]) => {
-    const st = L.fijoStatus(f, cur, today());
-    const monto = f.pagado ? parseN(f.montoPagado ?? f.monto) : parseN(f.monto);
-    h += `<div class="frow st-${st.code}">
-      <button class="chk ${f.pagado ? 'on' : ''}" data-act="togglePago" data-id="${id}" aria-label="${f.pagado ? 'Desmarcar' : 'Marcar'} ${esc(f.label)} como pagado"></button>
-      <button class="frow-main" data-act="fijo" data-id="${id}">
-        <span class="day">${L.dueDay(cur, f.dia)}</span>
-        <span class="flabel"><b>${esc(f.label)}</b><em class="pill">${monto ? st.label : 'Falta monto'}</em></span>
-        <span class="amt num m">${monto ? fmt(monto) : '—'}</span>
+  // plan of the month: pending first (by urgency, then due day), paid ones folded at the end
+  const real = L.realPorLinea(M());
+  const ORDER = {atrasado: 0, hoy: 1, pronto: 2, parcial: 3, pendiente: 4, mes: 5, pagado: 6};
+  const lines = Object.entries(M().fijos || {}).map(([id, l]) => { const r = real[L.lineKey(l.catId, l.subId)] || 0; return {id, l, r, st: L.lineStatus(l, r, cur, today())}; })
+    .sort((a, b) => (ORDER[a.st.code] - ORDER[b.st.code]) || ((a.l.dia || 32) - (b.l.dia || 32)));
+  const pend = lines.filter(x => x.st.code !== 'pagado'), paid = lines.filter(x => x.st.code === 'pagado');
+  const lineRow = ({id, l, r, st}) => {
+    const m = parseN(l.monto), c = cat(l.catId) || {icon: '•'};
+    const amt = st.code === 'parcial' ? `${fmt(r)}<br><span class="muted">de ${fmt(m)}</span>` : fmt(st.code === 'pagado' ? r : m);
+    return `<div class="frow st-${st.code}">
+      <button class="chk ${st.code === 'pagado' ? 'on' : ''}" data-act="togglePago" data-id="${id}" aria-label="${st.code === 'pagado' ? 'Desmarcar' : 'Marcar'} ${esc(l.label)} como pagado"></button>
+      <button class="frow-main" data-act="linea" data-id="${id}">
+        <span class="day">${l.dia ? L.dueDay(cur, l.dia) : `<span style="font-size:17px">${esc(c.icon)}</span>`}</span>
+        <span class="flabel"><b>${esc(l.label)}</b><em class="pill">${m ? st.label : 'Falta monto'}</em>${st.code === 'parcial' ? `<span class="cbar"><i style="width:${(r / m * 100).toFixed(1)}%"></i></span>` : ''}</span>
+        <span class="amt num m" style="text-align:right">${amt}</span>
       </button></div>`;
-  });
-  if(fijos.length) h += `<button class="link" data-act="fijo">+ Pago fijo solo para este mes</button>`;
-  h += `</section>`;
+  };
+  h += `<section class="card"><div class="sec-h"><h2>Plan del mes</h2><span class="muted">${lines.length ? paid.length + ' de ' + lines.length + ' pagados' : ''}</span></div>`;
+  if(!lines.length){
+    h += Object.keys(config.fijos || {}).length
+      ? `<p class="empty">Este mes todavía no tiene plan.</p><button class="btn btn-soft btn-block" data-act="cargarFijos">Cargar el plan recurrente</button>`
+      : `<p class="empty">Agreguen lo que piensan pagar este mes: renta, créditos, mercado…</p>`;
+  }
+  h += pend.map(lineRow).join('');
+  if(paid.length) h += `<details class="paid"><summary>Pagados (${paid.length}) · <span class="m">${fmt(paid.reduce((s, x) => s + x.r, 0))}</span></summary>${paid.map(lineRow).join('')}</details>`;
+  h += `<button class="link" data-act="linea">+ Agregar al plan de este mes</button></section>`;
 
-  // by category
-  const porCat = Object.entries(t.porCat).sort((a, b) => b[1] - a[1]);
-  const max = Math.max(1, ...porCat.map(c => c[1]));
-  h += `<section class="card"><div class="sec-h"><h2>En qué se va</h2><span class="muted m">${fmt(t.gastado)}</span></div>`;
-  if(!porCat.length) h += `<p class="empty">Cuando registren gastos, aquí verán en qué categoría se va el dinero.</p>`;
-  porCat.forEach(([cid, v]) => {
-    const c = cat(cid) || {label: 'Sin categoría', icon: '•'};
-    h += `<button class="crow" data-act="verCat" data-id="${esc(cid)}"><span class="cico">${esc(c.icon)}</span><span class="cmid"><b>${esc(c.label)}</b><span class="cbar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></span></span><span class="amt num m">${fmt(v)}</span></button>`;
+  // by category: paid vs planned
+  const cids = [...new Set([...Object.keys(t.planCat), ...Object.keys(t.porCat)])].sort((a, b) => Math.max(t.planCat[b] || 0, t.porCat[b] || 0) - Math.max(t.planCat[a] || 0, t.porCat[a] || 0));
+  h += `<section class="card"><div class="sec-h"><h2>Por categoría</h2><span class="muted">pagado / plan</span></div>`;
+  if(!cids.length) h += `<p class="empty">Cuando tengan plan o pagos, aquí verán en qué se va el dinero.</p>`;
+  cids.forEach(cid => {
+    const c = cat(cid) || {label: 'Sin categoría', icon: '•'}, v = t.porCat[cid] || 0, p = t.planCat[cid] || 0;
+    const w = p ? Math.min(100, v / p * 100) : 100;
+    h += `<button class="crow" data-act="verCat" data-id="${esc(cid)}"><span class="cico">${esc(c.icon)}</span><span class="cmid"><b>${esc(c.label)}</b><span class="cbar ${p && v > p ? 'over' : ''}"><i style="width:${w.toFixed(1)}%"></i></span></span><span class="amt num m" style="text-align:right">${fmt(v)}${p ? `<br><span class="muted">de ${fmt(p)}</span>` : ''}</span></button>`;
   });
   return h + `</section>`;
 }
@@ -447,10 +486,6 @@ function vInicio(){
 function movimientos(){
   const out = [];
   Object.entries(M().gastos || {}).forEach(([id, g]) => out.push({id, kind: 'gasto', catId: g.catId, fecha: g.fecha || 0, monto: parseN(g.monto), title: (cat(g.catId) || {subs: {}}).subs?.[g.subId] || (cat(g.catId) || {}).label || 'Gasto', nota: g.nota}));
-  Object.entries(M().fijos || {}).filter(([, f]) => f.pagado).forEach(([id, f]) => {
-    const [y, m] = cur.split('-').map(Number);
-    out.push({id, kind: 'fijo', catId: f.catId, fecha: f.fechaPago || new Date(y, m - 1, L.dueDay(cur, f.dia)).getTime(), monto: parseN(f.montoPagado ?? f.monto), title: f.label});
-  });
   return out.filter(x => !filtro || x.catId === filtro).sort((a, b) => b.fecha - a.fecha);
 }
 
@@ -467,7 +502,7 @@ function vMov(){
     const dk = x.fecha ? d.toLocaleDateString('es-CO', {weekday: 'long', day: 'numeric', month: 'short'}) : 'Sin fecha';
     if(dk !== lastDay){ if(open) h += `</div>`; h += `<div class="day-h">${dk}</div><div class="card" style="padding:4px 16px">`; lastDay = dk; open = true; }
     const c = cat(x.catId) || {label: 'Sin categoría', icon: '•'};
-    h += `<button class="crow" data-act="${x.kind}" data-id="${x.id}"><span class="cico">${esc(c.icon)}</span><span class="cmid"><b>${esc(x.title)}${x.kind === 'fijo' ? '<span class="tag">FIJO</span>' : ''}</b><span>${esc(x.nota || c.label)}</span></span><span class="amt num m">${fmt(x.monto)}</span></button>`;
+    h += `<button class="crow" data-act="${x.kind}" data-id="${x.id}"><span class="cico">${esc(c.icon)}</span><span class="cmid"><b>${esc(x.title)}</b><span>${esc(x.nota || c.label)}</span></span><span class="amt num m">${fmt(x.monto)}</span></button>`;
   });
   return h + (open ? `</div>` : '');
 }
@@ -477,11 +512,11 @@ function vAjustes(){
   ['p1', 'p2'].forEach(p => h += `<button class="list-row" data-act="personas"><span class="dot" style="background:${p === 'p1' ? 'var(--p1)' : 'var(--ok)'}"></span><span class="grow">${esc(pname(p))}</span><span class="num m">${fmt(parseN(P(p).base))}</span><span class="chev">›</span></button>`);
   h += `<p class="muted" style="margin-top:8px">Se cargan como "Salario" en cada mes nuevo. En cada mes puedes sumar extras.</p></section>`;
 
-  h += `<section class="card"><div class="sec-h"><h2>Pagos fijos</h2><span class="muted">Plantilla mensual</span></div>`;
-  const fijos = Object.entries(config.fijos || {}).sort((a, b) => (a[1].dia || 1) - (b[1].dia || 1));
-  if(!fijos.length) h += `<p class="empty">Sin pagos fijos todavía.</p>`;
-  fijos.forEach(([id, f]) => h += `<button class="list-row" data-act="fijoT" data-id="${id}"><span class="grow">${esc(f.label)}<br><span class="muted">Día ${f.dia || 1}${cat(f.catId) ? ' · ' + esc(cat(f.catId).label) : ''}</span></span>${parseN(f.monto) ? `<span class="num m">${fmt(parseN(f.monto))}</span>` : '<span class="muted">Falta monto</span>'}<span class="chev">›</span></button>`);
-  h += `<button class="btn btn-soft btn-block" style="margin-top:10px" data-act="fijoT">Agregar pago fijo</button></section>`;
+  const tpl = Object.entries(config.fijos || {}).sort((a, b) => ((cat(a[1].catId) || {}).orden ?? 99) - ((cat(b[1].catId) || {}).orden ?? 99) || ((a[1].dia || 32) - (b[1].dia || 32)));
+  h += `<section class="card"><div class="sec-h"><h2>Plan recurrente</h2><span class="muted m">${fmt(tpl.reduce((s, [, l]) => s + parseN(l.monto), 0))} / mes</span></div>`;
+  if(!tpl.length) h += `<p class="empty">Nada se repite todavía. Lo que agreguen aquí aparece solo en cada mes nuevo.</p>`;
+  tpl.forEach(([id, l]) => h += `<button class="list-row" data-act="lineaT" data-id="${id}"><span class="cico">${esc((cat(l.catId) || {icon: '•'}).icon)}</span><span class="grow">${esc(l.label)}<br><span class="muted">${l.dia ? 'Día ' + l.dia : 'Sin fecha'}</span></span>${parseN(l.monto) ? `<span class="num m">${fmt(parseN(l.monto))}</span>` : '<span class="muted">Falta monto</span>'}<span class="chev">›</span></button>`);
+  h += `<button class="btn btn-soft btn-block" style="margin-top:10px" data-act="lineaT">Agregar al plan recurrente</button></section>`;
 
   h += `<section class="card"><div class="sec-h"><h2>Categorías</h2></div>`;
   cats().forEach(([id, c]) => h += `<button class="list-row" data-act="categoria" data-id="${esc(id)}"><span class="cico">${esc(c.icon)}</span><span class="grow">${esc(c.label)}<br><span class="muted">${Object.keys(c.subs || {}).length} subcategorías</span></span><span class="chev">›</span></button>`);
@@ -553,7 +588,7 @@ const amountInput = (id, val, big) => `<input class="inp ${big ? 'inp-big' : ''}
 /* ----- gasto (variable) ----- */
 function gastoSheet(id, prefill){
   const g = id ? (M().gastos || {})[id] : null;
-  let catId = g ? g.catId : '', subId = g ? g.subId : '';
+  let catId = g ? g.catId : (prefill && prefill.catId) || '', subId = g ? g.subId : (prefill && prefill.subId) || '';
   const defFecha = g && g.fecha ? g.fecha : (cur === TODAY_KEY() ? Date.now() : fromIso(cur + '-01'));
   openSheet(g ? 'Editar gasto' : 'Nuevo gasto', `
     <div class="field">${amountInput('g-monto', g ? g.monto : (prefill && prefill.monto), true)}</div>
@@ -564,8 +599,16 @@ function gastoSheet(id, prefill){
     const subs = () => {
       const c = cat(catId);
       const items = Object.entries((c && c.subs) || {}).map(([sid, l]) => [sid, esc(l)]);
-      b.querySelector('#g-subs').innerHTML = catId ? (items.length ? `<span class="lbl">Subcategoría</span>${chipsHtml(items, subId, 'sub')}` : '<p class="muted">Sin subcategorías. Puedes agregarlas en Ajustes.</p>') : '';
-      if(items.length) bindChips(b, 'sub', v => { subId = v; valid(); });
+      b.querySelector('#g-subs').innerHTML = catId ? (items.length ? `<span class="lbl">Subcategoría</span>${chipsHtml(items, subId, 'sub')}<p class="muted" id="g-hint" style="margin-top:8px"></p>` : '<p class="muted">Sin subcategorías. Puedes agregarlas en Ajustes.</p>') : '';
+      if(items.length) bindChips(b, 'sub', v => { subId = v; hint(); valid(); });
+      hint();
+    };
+    // Shows how this payment fits the month's plan for the chosen subcategory.
+    const hint = () => {
+      const el = b.querySelector('#g-hint'); if(!el) return;
+      const line = vals(M().fijos).find(l => L.lineKey(l.catId, l.subId) === L.lineKey(catId, subId));
+      const r = line ? L.realDe(M(), line) - (g && L.lineKey(g.catId, g.subId) === L.lineKey(catId, subId) ? parseN(g.monto) : 0) : 0;
+      el.innerHTML = !subId ? '' : line ? `En el plan: pagado <span class="m">${fmt(r)}</span> de <span class="m">${fmt(parseN(line.monto))}</span>` : 'No está en el plan: cuenta como gasto fuera del plan.';
     };
     const valid = () => b.querySelector('#g-save').disabled = !(parseN(b.querySelector('#g-monto').value) > 0 && catId);
     bindChips(b, 'cat', v => { catId = v; subId = ''; subs(); valid(); });
@@ -574,6 +617,7 @@ function gastoSheet(id, prefill){
     if(!g && !(prefill && prefill.monto)) b.querySelector('#g-monto').focus();
     b.querySelector('#g-save').onclick = () => {
       const data = {catId, subId: subId || '', monto: parseN(b.querySelector('#g-monto').value), nota: b.querySelector('#g-nota').value.trim(), fecha: b.querySelector('#g-fecha').value ? fromIso(b.querySelector('#g-fecha').value) : Date.now()};
+      if(g && g.planId) data.planId = g.planId;
       set('meses/' + cur + '/gastos/' + (id || uid()), data);
       closeSheet(); toast(g ? 'Gasto actualizado' : 'Gasto agregado');
     };
@@ -585,82 +629,113 @@ function gastoSheet(id, prefill){
   });
 }
 
-/* ----- fijo del mes ----- */
-function fijoSheet(id){
-  const f = id ? (M().fijos || {})[id] : {label: '', monto: 0, dia: 1, catId: '', pagado: false};
-  if(!f) return;
-  let catId = f.catId || '', pagado = !!f.pagado;
-  openSheet(id ? f.label : 'Pago fijo de este mes', `
-    <div class="switch ${pagado ? 'on' : ''}" id="f-pag" role="switch" aria-checked="${pagado}" tabindex="0"><span>Pagado</span><i></i></div>
-    <div class="field" id="f-real-w" style="margin-top:12px"><label>Monto pagado</label>${amountInput('f-real', f.montoPagado ?? f.monto)}</div>
-    <div class="field" style="margin-top:12px"><label>Nombre</label><input class="inp" id="f-label" value="${esc(f.label)}"></div>
-    <div class="row2 field"><div><span class="lbl">Monto base</span>${amountInput('f-monto', f.monto)}</div><div><span class="lbl">Día de pago</span><input class="inp" id="f-dia" inputmode="numeric" value="${f.dia || 1}"></div></div>
-    <div class="field"><span class="lbl">Categoría</span>${chipsHtml(catChipItems(), catId, 'cat')}</div>
-    <p class="muted" style="margin-bottom:12px">Estos cambios aplican solo a ${L.monthLabel(cur)}. Para todos los meses, edita la plantilla en Ajustes.</p>
-    <div class="actions"><button class="btn btn-dark btn-block" id="f-save">Guardar</button>${id ? '<button class="btn btn-bad btn-block" id="f-del">Quitar de este mes</button>' : ''}</div>`, b => {
-    const sw = b.querySelector('#f-pag');
-    const sync = () => { sw.classList.toggle('on', pagado); sw.setAttribute('aria-checked', pagado); b.querySelector('#f-real-w').classList.toggle('hidden', !pagado); };
-    sw.onclick = () => { pagado = !pagado; sync(); };
+/* ----- plan lines (shared form for a month line and a recurring line) ----- */
+function lineFormHtml(l){
+  return `<div class="field"><span class="lbl">Categoría</span>${chipsHtml(catChipItems(), l.catId, 'cat')}</div>
+    <div class="field" id="l-subs"></div>
+    <div class="field"><label>Nombre</label><input class="inp" id="l-label" value="${esc(l.label)}" placeholder="Ej. Renta"></div>
+    <div class="row2 field"><div><span class="lbl">Monto previsto</span>${amountInput('l-monto', l.monto)}</div><div><span class="lbl">Día de pago</span><input class="inp" id="l-dia" inputmode="numeric" placeholder="Sin fecha" value="${l.dia || ''}"></div></div>`;
+}
+// Wires category/subcategory chips; returns a reader for the form values.
+function bindLineForm(b, l){
+  let catId = l.catId || '', subId = l.subId || '';
+  const lab = b.querySelector('#l-label');
+  const subs = () => {
+    const items = Object.entries((cat(catId) || {}).subs || {}).map(([sid, s]) => [sid, esc(s)]);
+    b.querySelector('#l-subs').innerHTML = catId && items.length ? `<span class="lbl">Subcategoría</span>${chipsHtml(items, subId, 'sub')}` : '';
+    if(items.length) bindChips(b, 'sub', v => { const prev = ((cat(catId) || {}).subs || {})[subId]; if(!lab.value || lab.value === prev) lab.value = cat(catId).subs[v]; subId = v; });
+  };
+  bindChips(b, 'cat', v => { catId = v; subId = ''; subs(); });
+  subs();
+  return () => ({label: lab.value.trim() || ((cat(catId) || {}).subs || {})[subId] || '', catId, subId, monto: parseN(b.querySelector('#l-monto').value), dia: Math.min(31, Math.max(0, parseInt(b.querySelector('#l-dia').value) || 0))});
+}
+function lineError(data, id, plan){
+  if(!data.catId) return 'Elige una categoría';
+  if(Object.keys((cat(data.catId) || {}).subs || {}).length && !data.subId) return 'Elige una subcategoría';
+  if(!data.label) return 'Ponle un nombre';
+  const dup = Object.entries(plan || {}).find(([oid, o]) => oid !== id && L.lineKey(o.catId, o.subId) === L.lineKey(data.catId, data.subId));
+  return dup ? `"${dup[1].label}" ya está en el plan con esa subcategoría` : '';
+}
+
+/* ----- línea del plan de este mes ----- */
+function lineaSheet(id){
+  const l = id ? (M().fijos || {})[id] : {label: '', catId: '', subId: '', monto: 0, dia: 0};
+  if(!l) return;
+  let rec = !!(id && (config.fijos || {})[id]);
+  const pagos = id ? Object.entries(M().gastos || {}).filter(([, g]) => L.lineKey(g.catId, g.subId) === L.lineKey(l.catId, l.subId)).sort((a, b) => (b[1].fecha || 0) - (a[1].fecha || 0)) : [];
+  const r = pagos.reduce((s, [, g]) => s + parseN(g.monto), 0), m = parseN(l.monto);
+  const pagosHtml = id ? `<div class="card" style="padding:12px 14px">
+      <div class="sec-h" style="margin-bottom:4px"><h2 class="m">Pagado ${fmt(r)} de ${fmt(m)}</h2></div>
+      ${pagos.map(([gid, g]) => `<button class="list-row" data-gasto="${gid}"><span class="grow">${new Date(g.fecha || 0).toLocaleDateString('es-CO', {day: 'numeric', month: 'short'})}${g.nota ? ' · ' + esc(g.nota) : ''}</span><span class="num m">${fmt(parseN(g.monto))}</span><span class="chev">›</span></button>`).join('')}
+      <button class="btn btn-soft btn-block" style="margin-top:8px" id="l-pay">Registrar pago${m > r ? ' de ' + fmt(m - r) : ''}</button></div>` : '';
+  openSheet(id ? l.label : 'Agregar al plan de ' + L.monthName(cur), pagosHtml + lineFormHtml(l) + `
+    <div class="switch ${rec ? 'on' : ''}" id="l-rec" role="switch" aria-checked="${rec}" tabindex="0" style="margin-bottom:6px"><span>Se repite cada mes</span><i></i></div>
+    <p class="muted" style="margin-bottom:14px">Si se repite, los cambios también aplican a los meses siguientes.</p>
+    <div class="actions"><button class="btn btn-dark btn-block" id="l-save">Guardar</button>${id ? '<button class="btn btn-bad btn-block" id="l-del">Quitar de este mes</button>' : ''}</div>`, b => {
+    const read = bindLineForm(b, l);
+    const sw = b.querySelector('#l-rec');
+    sw.onclick = () => { rec = !rec; sw.classList.toggle('on', rec); sw.setAttribute('aria-checked', rec); };
     sw.onkeydown = e => { if(e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); sw.onclick(); } };
-    sync();
-    bindChips(b, 'cat', v => catId = v);
-    b.querySelector('#f-save').onclick = () => {
-      const label = b.querySelector('#f-label').value.trim();
-      if(!label) return b.querySelector('#f-label').focus();
-      const monto = parseN(b.querySelector('#f-monto').value);
-      const data = {label, monto, dia: Math.min(31, Math.max(1, parseInt(b.querySelector('#f-dia').value) || 1)), catId, pagado};
-      if(pagado){ data.montoPagado = parseN(b.querySelector('#f-real').value) || monto; data.fechaPago = f.fechaPago || Date.now(); }
-      set('meses/' + cur + '/fijos/' + (id || uid()), data);
-      closeSheet(); toast('Guardado');
+    b.querySelectorAll('[data-gasto]').forEach(el => el.onclick = () => gastoSheet(el.dataset.gasto));
+    if(id) b.querySelector('#l-pay').onclick = () => gastoSheet(null, {catId: l.catId, subId: l.subId, monto: Math.max(0, m - r) || ''});
+    b.querySelector('#l-save').onclick = () => {
+      const data = read(), lid = id || uid(), err = lineError(data, lid, M().fijos);
+      if(err) return toast(err);
+      const upd = {['meses/' + cur + '/fijos/' + lid]: data};
+      if(rec){
+        upd['config/fijos/' + lid] = data;
+        Object.keys(meses).forEach(k => { if(k > cur && !lineError(data, lid, meses[k].fijos)) upd['meses/' + k + '/fijos/' + lid] = data; });
+      } else if((config.fijos || {})[lid]) upd['config/fijos/' + lid] = null;
+      patch(upd); closeSheet(); toast('Plan actualizado');
     };
-    if(id) b.querySelector('#f-del').onclick = () => {
-      const path = 'meses/' + cur + '/fijos/' + id, old = f;
-      R(path).remove().catch(fail); closeSheet(); toast('Quitado de este mes', () => set(path, old));
+    if(id) b.querySelector('#l-del').onclick = () => {
+      const path = 'meses/' + cur + '/fijos/' + id;
+      R(path).remove().catch(fail); closeSheet(); toast('Quitado del plan de ' + L.monthName(cur), () => set(path, l));
     };
   });
 }
 
-function togglePago(id){
-  const f = (M().fijos || {})[id];
-  if(!f) return;
-  if(!f.pagado && !parseN(f.monto)) return fijoSheet(id); // no amount yet: ask for it
-  const path = 'meses/' + cur + '/fijos/' + id;
-  if(f.pagado){ patch({[path + '/pagado']: false, [path + '/montoPagado']: null, [path + '/fechaPago']: null}); toast('Marcado como pendiente'); }
-  else { patch({[path + '/pagado']: true, [path + '/montoPagado']: parseN(f.monto), [path + '/fechaPago']: Date.now()}); toast(f.label + ' pagado', () => patch({[path + '/pagado']: false, [path + '/montoPagado']: null, [path + '/fechaPago']: null})); }
-}
-
-/* ----- plantilla de fijos ----- */
-function fijoTSheet(id){
-  const f = id ? config.fijos[id] : {label: '', monto: 0, dia: 1, catId: ''};
-  let catId = f.catId || '';
-  openSheet(id ? 'Editar pago fijo' : 'Nuevo pago fijo', `
-    <div class="field"><label>Nombre</label><input class="inp" id="t-label" placeholder="Ej. Renta" value="${esc(f.label)}"></div>
-    <div class="row2 field"><div><span class="lbl">Monto base</span>${amountInput('t-monto', f.monto)}</div><div><span class="lbl">Día de pago</span><input class="inp" id="t-dia" inputmode="numeric" value="${f.dia || 1}"></div></div>
-    <div class="field"><span class="lbl">Categoría</span>${chipsHtml(catChipItems(), catId, 'cat')}</div>
-    <p class="muted" style="margin-bottom:12px">Se aplica a los meses nuevos y a los pagos aún no pagados desde ${L.monthLabel(TODAY_KEY())}.</p>
-    <div class="actions"><button class="btn btn-dark btn-block" id="t-save">Guardar</button>${id ? '<button class="btn btn-bad btn-block" id="t-del">Eliminar pago fijo</button>' : ''}</div>`, b => {
-    bindChips(b, 'cat', v => catId = v);
-    if(!id) b.querySelector('#t-label').focus();
+/* ----- línea del plan recurrente (Ajustes) ----- */
+function lineaTSheet(id){
+  const l = id ? config.fijos[id] : {label: '', catId: '', subId: '', monto: 0, dia: 0};
+  const desde = cur > TODAY_KEY() ? cur : TODAY_KEY();
+  openSheet(id ? 'Plan recurrente' : 'Agregar al plan recurrente', lineFormHtml(l) + `
+    <p class="muted" style="margin-bottom:14px">Aparece en cada mes nuevo y se actualiza desde ${L.monthLabel(desde)}. Los pagos ya registrados no cambian.</p>
+    <div class="actions"><button class="btn btn-dark btn-block" id="t-save">Guardar</button>${id ? '<button class="btn btn-bad btn-block" id="t-del">Dejar de repetir</button>' : ''}</div>`, b => {
+    const read = bindLineForm(b, l);
     b.querySelector('#t-save').onclick = () => {
-      const label = b.querySelector('#t-label').value.trim();
-      if(!label) return b.querySelector('#t-label').focus();
-      const data = {label, monto: parseN(b.querySelector('#t-monto').value), dia: Math.min(31, Math.max(1, parseInt(b.querySelector('#t-dia').value) || 1)), catId};
-      const fid = id || uid();
-      const upd = {['config/fijos/' + fid]: data};
-      // Propagate to this month and future months where it is still unpaid.
-      Object.entries(meses).forEach(([k, m]) => {
-        if(k < TODAY_KEY()) return;
-        const mf = (m.fijos || {})[fid];
-        if(!mf || !mf.pagado) upd['meses/' + k + '/fijos/' + fid] = Object.assign({}, data, {pagado: false});
-      });
-      patch(upd); closeSheet(); toast('Pago fijo guardado');
+      const data = read(), lid = id || uid(), err = lineError(data, lid, config.fijos);
+      if(err) return toast(err);
+      const upd = {['config/fijos/' + lid]: data};
+      Object.keys(meses).forEach(k => { if(k >= desde && !lineError(data, lid, meses[k].fijos)) upd['meses/' + k + '/fijos/' + lid] = data; });
+      patch(upd); closeSheet(); toast('Plan recurrente guardado');
     };
-    if(id) b.querySelector('#t-del').onclick = () => confirmSheet('Eliminar pago fijo', `"${esc(f.label)}" se quita de la plantilla y de los meses donde aún no está pagado. Los pagos ya hechos se conservan.`, 'Eliminar', () => {
+    if(id) b.querySelector('#t-del').onclick = () => confirmSheet('Dejar de repetir', `"${esc(l.label)}" ya no se agregará a los meses nuevos y se quita de los meses después de ${L.monthLabel(desde)}. Los meses actuales y pasados no cambian.`, 'Dejar de repetir', () => {
       const upd = {['config/fijos/' + id]: null};
-      Object.entries(meses).forEach(([k, m]) => { const mf = (m.fijos || {})[id]; if(k >= TODAY_KEY() && mf && !mf.pagado) upd['meses/' + k + '/fijos/' + id] = null; });
-      patch(upd); toast('Pago fijo eliminado');
+      Object.keys(meses).forEach(k => { if(k > desde) upd['meses/' + k + '/fijos/' + id] = null; });
+      patch(upd); toast('Ya no se repite');
     });
   });
+}
+
+// ✓ on a plan line: records a payment for what's missing; on a line paid with ✓, removes that payment.
+function togglePago(id){
+  const l = (M().fijos || {})[id];
+  if(!l) return;
+  const r = L.realDe(M(), l), m = parseN(l.monto);
+  if(!m) return lineaSheet(id);
+  if(r >= m){
+    const mine = Object.keys(M().gastos || {}).filter(gid => M().gastos[gid].planId === id);
+    if(!mine.length) return lineaSheet(id); // paid through regular payments: edit them there
+    const upd = {}, old = {};
+    mine.forEach(gid => { upd['meses/' + cur + '/gastos/' + gid] = null; old['meses/' + cur + '/gastos/' + gid] = M().gastos[gid]; });
+    patch(upd); toast(l.label + ' pendiente', () => patch(old));
+    return;
+  }
+  const path = 'meses/' + cur + '/gastos/' + uid();
+  const fecha = cur === TODAY_KEY() ? Date.now() : fromIso(cur + '-' + String(L.dueDay(cur, l.dia || 1)).padStart(2, '0'));
+  set(path, {catId: l.catId, subId: l.subId || '', monto: m - r, nota: '', fecha, planId: id});
+  toast(l.label + ' pagado', () => R(path).remove());
 }
 
 /* ----- ingresos del mes ----- */
@@ -696,9 +771,9 @@ function ingresosSheet(){
 function presuSheet(){
   const t = L.totals(M());
   openSheet('Presupuesto de ' + L.monthName(cur), `
-    <div class="list-row"><span class="grow">Pagos fijos (base)</span><span class="num m">${fmt(t.fijosPresu)}</span></div>
-    <div class="field" style="margin-top:12px"><label>Para gastos variables (mercado, ocio, compras…)</label>${amountInput('p-var', M().presuVariable, true)}</div>
-    <p class="muted" style="margin-bottom:14px">Presupuesto total = fijos + variables. Se copia al crear el mes siguiente.</p>
+    <div class="list-row"><span class="grow">Plan del mes</span><span class="num m">${fmt(t.planTotal)}</span></div>
+    <div class="field" style="margin-top:12px"><label>Margen para gastos fuera del plan (cafés, salidas, imprevistos…)</label>${amountInput('p-var', M().presuVariable, true)}</div>
+    <p class="muted" style="margin-bottom:14px">Presupuesto total = plan + margen. El margen se copia al crear el mes siguiente.</p>
     <div class="actions"><button class="btn btn-dark btn-block" id="p-save">Guardar</button></div>`, b => {
     b.querySelector('#p-save').onclick = () => { set('meses/' + cur + '/presuVariable', parseN(b.querySelector('#p-var').value)); closeSheet(); toast('Presupuesto guardado'); };
   });
@@ -822,10 +897,10 @@ function handleDeepLink(){
 const actions = {
   tab: d => { view = d.v; filtro = ''; render(); scrollTo(0, 0); },
   gasto: d => gastoSheet(d.id),
-  fijo: d => fijoSheet(d.id),
-  fijoT: d => fijoTSheet(d.id),
+  linea: d => lineaSheet(d.id),
+  lineaT: d => lineaTSheet(d.id),
   togglePago: d => togglePago(d.id),
-  cargarFijos: () => { const upd = {}; Object.entries(config.fijos || {}).forEach(([id, f]) => upd['meses/' + cur + '/fijos/' + id] = {label: f.label, monto: parseN(f.monto), dia: f.dia || 1, catId: f.catId || '', pagado: false}); patch(upd); },
+  cargarFijos: () => { const plan = {}; Object.entries(config.fijos || {}).forEach(([id, l]) => plan[id] = L.planLine(l)); set('meses/' + cur + '/fijos', plan); },
   ingresos: ingresosSheet, presu: presuSheet, meses: mesesSheet, personas: personasSheet, atajo: atajoSheet,
   categoria: d => categoriaSheet(d.id),
   verCat: d => { filtro = d.id; view = 'mov'; render(); scrollTo(0, 0); },

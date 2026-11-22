@@ -33,42 +33,56 @@
   const daysInMonth = k => { const [y, m] = k.split('-').map(Number); return new Date(y, m, 0).getDate(); };
   const dueDay = (k, dia) => Math.min(Math.max(1, dia | 0 || 1), daysInMonth(k));
 
-  // today: Date. Returns {code, label} for a month's fixed payment.
-  function fijoStatus(f, k, today){
-    if(f.pagado) return {code:'pagado', label:'Pagado'};
+  // A plan line (mes.fijos) is covered by the month's payments (mes.gastos) in the same category › subcategory.
+  const lineKey = (catId, subId) => (catId || '') + '|' + (subId || '');
+  function realPorLinea(mes){
+    const r = {};
+    vals((mes || {}).gastos).forEach(g => { const k = lineKey(g.catId, g.subId); r[k] = (r[k] || 0) + parseN(g.monto); });
+    return r;
+  }
+  const realDe = (mes, l) => realPorLinea(mes)[lineKey(l.catId, l.subId)] || 0;
+
+  // today: Date. real: amount paid so far for this line. dia 0/empty = no due date.
+  function lineStatus(l, real, k, today){
+    const monto = parseN(l.monto);
+    if(monto > 0 && real >= monto) return {code:'pagado', label:'Pagado'};
+    if(real > 0) return {code:'parcial', label:'Faltan ' + fmt(monto - real)};
     const cur = monthKey(today);
+    if(!l.dia) return k < cur ? {code:'atrasado', label:'No pagado'} : {code:'mes', label:'Este mes'};
     if(k < cur) return {code:'atrasado', label:'Atrasado'};
-    if(k > cur) return {code:'pendiente', label:'Día ' + dueDay(k, f.dia)};
-    const diff = dueDay(k, f.dia) - today.getDate();
+    if(k > cur) return {code:'pendiente', label:'Día ' + dueDay(k, l.dia)};
+    const diff = dueDay(k, l.dia) - today.getDate();
     if(diff < 0) return {code:'atrasado', label:'Atrasado'};
     if(diff === 0) return {code:'hoy', label:'Vence hoy'};
     if(diff === 1) return {code:'pronto', label:'Mañana'};
     if(diff <= 3) return {code:'pronto', label:'En ' + diff + ' días'};
-    return {code:'pendiente', label:'Día ' + dueDay(k, f.dia)};
+    return {code:'pendiente', label:'Día ' + dueDay(k, l.dia)};
   }
 
   function totals(mes){
     mes = mes || {};
     const ing = mes.ingresos || {};
-    const fijos = vals(mes.fijos), gastos = vals(mes.gastos);
-    const real = f => f.pagado ? parseN(f.montoPagado ?? f.monto) : parseN(f.monto);
+    const plan = vals(mes.fijos), gastos = vals(mes.gastos);
+    const real = realPorLinea(mes);
+    const planKeys = new Set(plan.map(l => lineKey(l.catId, l.subId)));
     const porPersona = {p1: sum(vals(ing.p1), e => parseN(e.monto)), p2: sum(vals(ing.p2), e => parseN(e.monto))};
     const ingresos = porPersona.p1 + porPersona.p2;
-    const fijosPresu = sum(fijos, f => parseN(f.monto));
-    const fijosPagado = sum(fijos.filter(f => f.pagado), real);
-    const pendiente = sum(fijos.filter(f => !f.pagado), real);
-    const variables = sum(gastos, g => parseN(g.monto));
-    const porCat = {};
+    const planTotal = sum(plan, l => parseN(l.monto));
+    const pendiente = sum(plan, l => Math.max(0, parseN(l.monto) - (real[lineKey(l.catId, l.subId)] || 0)));
+    const gastado = sum(gastos, g => parseN(g.monto));
+    const fueraPlan = sum(gastos.filter(g => !planKeys.has(lineKey(g.catId, g.subId))), g => parseN(g.monto));
+    const porCat = {}, planCat = {};
     gastos.forEach(g => porCat[g.catId] = (porCat[g.catId] || 0) + parseN(g.monto));
-    fijos.filter(f => f.pagado && f.catId).forEach(f => porCat[f.catId] = (porCat[f.catId] || 0) + real(f));
-    const gastado = fijosPagado + variables;
+    plan.forEach(l => planCat[l.catId] = (planCat[l.catId] || 0) + parseN(l.monto));
     const proyeccion = gastado + pendiente;
-    const presupuestado = fijosPresu + parseN(mes.presuVariable);
-    return {porPersona, ingresos, fijosPresu, fijosPagado, pendiente, variables, gastado, proyeccion, presupuestado,
-            disponible: ingresos - proyeccion, vsPresupuesto: presupuestado - proyeccion, porCat};
+    const presupuestado = planTotal + parseN(mes.presuVariable);
+    return {porPersona, ingresos, planTotal, pendiente, gastado, enPlan: gastado - fueraPlan, fueraPlan, proyeccion, presupuestado,
+            disponible: ingresos - proyeccion, vsPresupuesto: presupuestado - proyeccion, porCat, planCat};
   }
 
-  // New month from the config template; presuVariable carries over from the previous month.
+  const planLine = l => ({label: l.label || '', catId: l.catId || '', subId: l.subId || '', monto: parseN(l.monto), dia: l.dia | 0});
+
+  // New month: base salaries + recurring plan lines; presuVariable carries over from the previous month.
   function newMonth(config, prev, uid){
     config = config || {};
     const ingresos = {};
@@ -77,10 +91,20 @@
       ingresos[p] = base ? {[uid()]: {label: 'Salario', monto: base}} : {};
     });
     const fijos = {};
-    Object.entries(config.fijos || {}).forEach(([id, f]) => {
-      fijos[id] = {label: f.label, monto: parseN(f.monto), dia: f.dia | 0 || 1, catId: f.catId || '', pagado: false};
-    });
+    Object.entries(config.fijos || {}).forEach(([id, l]) => fijos[id] = planLine(l));
     return {ingresos, fijos, gastos: {}, presuVariable: parseN((prev || {}).presuVariable)};
+  }
+
+  // Turns a month's recorded amounts into plan lines, one per category › subcategory, in category order.
+  function planFromGastos(gastos, categorias){
+    const out = {};
+    vals(gastos).forEach(g => {
+      const k = lineKey(g.catId, g.subId);
+      const c = (categorias || {})[g.catId] || {};
+      if(!out[k]) out[k] = {catId: g.catId || '', subId: g.subId || '', label: (c.subs || {})[g.subId] || c.label || 'Pago', monto: 0, dia: 0, orden: c.orden ?? 99};
+      out[k].monto += parseN(g.monto);
+    });
+    return Object.values(out).sort((a, b) => a.orden - b.orden).map(({orden, ...l}) => l);
   }
 
   // v1 → v2. v1: meses/{k}: {income:{ella:[],el:[]}, budget, expenses:[]}, categorias: [{id,label,icon,subs:[]}]
@@ -105,6 +129,6 @@
     return {categorias, meses};
   }
 
-  root.L = {MESES, vals, parseN, fmt, monthKey, monthLabel, monthName, addMonths, daysInMonth, dueDay, fijoStatus, totals, newMonth, importV1};
+  root.L = {MESES, vals, parseN, fmt, monthKey, monthLabel, monthName, addMonths, daysInMonth, dueDay, lineKey, realPorLinea, realDe, lineStatus, totals, planLine, newMonth, planFromGastos, importV1};
   if(typeof module !== 'undefined') module.exports = root.L;
 })(typeof window !== 'undefined' ? window : globalThis);

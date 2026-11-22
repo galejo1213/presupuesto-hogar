@@ -23,22 +23,23 @@ App de presupuesto para dos personas, instalable en iPhone, privada y rápida de
 v2/config
   personas/{p1|p2}: { nombre, base }
   categorias/{catId}: { label, icon, orden, subs/{subId}: label }
-  fijos/{id}: { label, monto, dia, catId }          ← plantilla de pagos recurrentes
+  fijos/{id}: { label, catId, subId, monto, dia }   ← plan recurrente (dia 0 = sin fecha)
+  version: 3                                          ← modelo plan + pagos
 v2/meses/{YYYY-MM}
   ingresos/{p1|p2}/{id}: { label, monto }            ← base precargada + extras (monto < 0 = descuento)
-  presuVariable: número                               ← presupuesto para gastos variables
-  fijos/{id}: { label, monto, dia, catId, pagado, montoPagado }
-  gastos/{id}: { catId, subId, monto, fecha, nota }
+  presuVariable: número                               ← margen para gastos fuera del plan
+  fijos/{id}: { label, catId, subId, monto, dia }     ← plan del mes (lo previsto)
+  gastos/{id}: { catId, subId, monto, fecha, nota, planId? }  ← pagos hechos (lo real)
 ```
 Objetos por id (no arrays) y escrituras por ruta: dos teléfonos editando a la vez no se pisan.
 
 ## Cálculos
 - Ingresos = suma de ingresos del mes.
-- Gastado = fijos pagados (monto real) + gastos variables.
-- Proyección del mes = gastos variables + fijos (monto real si está pagado, base si no).
-- Presupuestado = fijos base + presupuesto variable.
+- Una línea del plan queda cubierta por los pagos de su misma categoría › subcategoría (a mano, atajo o ✓).
+- Pagado = suma de pagos. Por pagar = Σ max(0, previsto − pagado) por línea.
+- Proyección del mes = pagado + por pagar. Presupuestado = plan + margen.
 - Disponible al cierre = ingresos − proyección.
-- Estado de un fijo: pagado · atrasado · vence hoy · en N días (≤3) · pendiente.
+- Estado de una línea: pagado · faltan $X (parcial) · atrasado · vence hoy · en N días (≤3) · día N · este mes (sin fecha).
 
 ## Pantallas
 - **Inicio:** mes actual (toca para cambiar), balance, próximos pagos (marcar pagado con un toque), gasto por categoría.
@@ -48,7 +49,8 @@ Objetos por id (no arrays) y escrituras por ruta: dos teléfonos editando a la v
 - **Meses:** crear cualquier mes (también 2027+), borrar, agrupados por año. El mes del calendario se crea solo con ingresos base y fijos de la plantilla.
 
 ## Migración
-Si `v2/` está vacío, se importan una vez los meses y categorías de la v1.
+- Si `v2/` está vacío, se importan una vez los meses y categorías de la v1.
+- Una vez (config.version ≠ 3): los montos de diciembre 2026 de la v1 pasan a ser el plan de diciembre (sin pagos); la pareja marca qué líneas se repiten cada mes.
 
 ## Fuera de alcance
 Notificaciones push, modo sin conexión (service worker), app nativa, conexión bancaria.
