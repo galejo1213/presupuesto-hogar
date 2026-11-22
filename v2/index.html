@@ -309,9 +309,9 @@ $('btn-login').onclick = async () => {
   prov.setCustomParameters({prompt: 'select_account'});
   try { await auth.signInWithPopup(prov); }
   catch(e){
-    // Installed iOS apps can block popups; fall back to a full-page redirect.
-    if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(e.code)) return auth.signInWithRedirect(prov);
-    if(!['auth/popup-closed-by-user','auth/cancelled-popup-request'].includes(e.code)) $('login-err').textContent = 'No se pudo entrar (' + e.code + '). Intenta de nuevo.';
+    // No redirect fallback: on GitHub Pages it fails in iPhone browsers (storage partitioning), so explain instead.
+    if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(e.code)) $('login-err').textContent = 'El navegador bloqueó la ventana de Google. Abre el presupuesto en Safari, o permite las ventanas emergentes y vuelve a intentar.';
+    else if(!['auth/popup-closed-by-user','auth/cancelled-popup-request'].includes(e.code)) $('login-err').textContent = 'No se pudo entrar (' + e.code + '). Intenta de nuevo.';
   }
 };
 
