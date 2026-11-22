@@ -277,7 +277,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const today = () => new Date();
 const TODAY_KEY = () => L.monthKey(today());
 let config = null, meses = {}, cur = TODAY_KEY(), view = 'inicio', filtro = '', ready = false, user = null;
-let deepLink = null;
+let deepLink = null, paidOpen = false; // paidOpen survives re-renders from the partner's changes
 const M = () => meses[cur] || {};
 const P = p => ((config && config.personas) || {})[p] || {};
 const pname = p => P(p).nombre || (p === 'p1' ? 'Persona 1' : 'Persona 2');
@@ -471,7 +471,7 @@ function vInicio(){
       : `<p class="empty">Agreguen lo que piensan pagar este mes: renta, créditos, mercado…</p>`;
   }
   h += pend.map(lineRow).join('');
-  if(paid.length) h += `<details class="paid"><summary>Pagados (${paid.length}) · <span class="m">${fmt(paid.reduce((s, x) => s + x.r, 0))}</span></summary>${paid.map(lineRow).join('')}</details>`;
+  if(paid.length) h += `<details class="paid" ${paidOpen ? 'open' : ''} ontoggle="paidOpen = this.open"><summary>Pagados (${paid.length}) · <span class="m">${fmt(paid.reduce((s, x) => s + x.r, 0))}</span></summary>${paid.map(lineRow).join('')}</details>`;
   h += `<button class="link" data-act="linea">+ Agregar al plan de este mes</button></section>`;
 
   // by category: paid vs planned
@@ -480,7 +480,7 @@ function vInicio(){
   if(!cids.length) h += `<p class="empty">Cuando tengan plan o pagos, aquí verán en qué se va el dinero.</p>`;
   cids.forEach(cid => {
     const c = cat(cid) || {label: 'Sin categoría', icon: '•'}, v = t.porCat[cid] || 0, p = t.planCat[cid] || 0;
-    const w = p ? Math.min(100, v / p * 100) : 100;
+    const w = p ? Math.min(100, v / p * 100) : 0;
     h += `<button class="crow" data-act="verCat" data-id="${esc(cid)}"><span class="cico">${esc(c.icon)}</span><span class="cmid"><b>${esc(c.label)}</b><span class="cbar ${p && v > p ? 'over' : ''}"><i style="width:${w.toFixed(1)}%"></i></span></span><span class="amt num m" style="text-align:right">${fmt(v)}${p ? `<br><span class="muted">de ${fmt(p)}</span>` : ''}</span></button>`;
   });
   return h + `</section>`;
@@ -591,7 +591,11 @@ const amountInput = (id, val, big) => `<input class="inp ${big ? 'inp-big' : ''}
 /* ----- gasto (variable) ----- */
 function gastoSheet(id, prefill){
   const g = id ? (M().gastos || {})[id] : null;
-  let catId = g ? g.catId : (prefill && prefill.catId) || '', subId = g ? g.subId : (prefill && prefill.subId) || '';
+  // Apple Pay merchant seen before: start with the category they picked last time.
+  const mk = !g && prefill && prefill.comercio ? L.merchantKey(prefill.comercio) : '';
+  const known = mk && (config.comercios || {})[mk];
+  const usable = known && cat(known.catId) ? known : null;
+  let catId = g ? g.catId : (prefill && prefill.catId) || (usable ? usable.catId : ''), subId = g ? g.subId : (prefill && prefill.subId) || (usable ? usable.subId || '' : '');
   const defFecha = g && g.fecha ? g.fecha : (cur === TODAY_KEY() ? Date.now() : fromIso(cur + '-01'));
   openSheet(g ? 'Editar gasto' : 'Nuevo gasto', `
     <div class="field">${amountInput('g-monto', g ? g.monto : (prefill && prefill.monto), true)}</div>
@@ -621,7 +625,9 @@ function gastoSheet(id, prefill){
     b.querySelector('#g-save').onclick = () => {
       const data = {catId, subId: subId || '', monto: parseN(b.querySelector('#g-monto').value), nota: b.querySelector('#g-nota').value.trim(), fecha: b.querySelector('#g-fecha').value ? fromIso(b.querySelector('#g-fecha').value) : Date.now()};
       if(g && g.planId) data.planId = g.planId;
-      set('meses/' + cur + '/gastos/' + (id || uid()), data);
+      const upd = {['meses/' + cur + '/gastos/' + (id || uid())]: data};
+      if(mk) upd['config/comercios/' + mk] = {catId, subId: subId || ''};
+      patch(upd);
       closeSheet(); toast(g ? 'Gasto actualizado' : 'Gasto agregado');
     };
     if(g) b.querySelector('#g-del').onclick = () => {
@@ -883,8 +889,9 @@ function atajoSheet(){
       <li>Abre la app <b>Atajos</b> → pestaña <b>Automatización</b> → <b>+</b> (Nueva automatización).</li>
       <li>Elige <b>Transacción</b>, selecciona sus tarjetas y en "Cuándo" deja <b>Toco</b>. Marca <b>Ejecutar inmediatamente</b> → Siguiente.</li>
       <li>Toca <b>Nueva automatización en blanco</b> y agrega la acción <b>Abrir URL</b>.</li>
-      <li>Escribe esta dirección y, donde dice MONTO y COMERCIO, inserta las variables <b>Cantidad</b> y <b>Comerciante</b> (toca la variable "Entrada de atajo" para elegirlas):
+      <li>Escribe esta dirección. Donde dice MONTO y COMERCIO, toca <b>+</b> → <b>Shortcut Input</b> (Entrada de atajo), y luego toca esa variable para elegir <b>Amount</b> (Cantidad) y <b>Merchant</b> (Comerciante):
         <span class="code">${esc(url)}?monto=MONTO&amp;comercio=COMERCIO</span></li>
+      <li>La primera vez que paguen en un lugar, elijan la categoría. La app la recuerda y la próxima vez solo tocan <b>Agregar gasto</b>.</li>
       <li>Abrirá Safari: entra con Google una vez en Safari también (Safari y la app instalada guardan sesiones separadas).</li>
     </ol>
     <div class="actions"><button class="btn btn-soft btn-block" data-act="close">Entendido</button></div>`);
@@ -893,7 +900,8 @@ function atajoSheet(){
 function handleDeepLink(){
   const q = new URLSearchParams(location.search);
   if(!q.has('monto')) return;
-  deepLink = {monto: parseN(q.get('monto')) || '', nota: (q.get('comercio') || '').slice(0, 60)};
+  const comercio = (q.get('comercio') || '').slice(0, 60);
+  deepLink = {monto: parseN(q.get('monto')) || '', nota: comercio, comercio};
   history.replaceState(null, '', location.pathname);
   cur = TODAY_KEY(); view = 'inicio';
   gastoSheet(null, deepLink);

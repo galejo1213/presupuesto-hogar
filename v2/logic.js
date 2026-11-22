@@ -107,6 +107,14 @@
     return Object.values(out).sort((a, b) => a.orden - b.orden).map(({orden, ...l}) => l);
   }
 
+  // Stable key for a merchant name as Apple Pay sends it: "SQ *Tim Hortons #1234" → "tim_hortons".
+  // Payment-processor prefixes and store numbers vary between payments at the same place.
+  function merchantKey(s){
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/^\s*(sq|tst|sp|pp|paypal|ec)\s*\*\s*/, '')
+      .replace(/[^a-z]+/g, ' ').trim().slice(0, 40).trim().replace(/ /g, '_');
+  }
+
   // v1 → v2. v1: meses/{k}: {income:{ella:[],el:[]}, budget, expenses:[]}, categorias: [{id,label,icon,subs:[]}]
   function importV1(v1meses, v1cats){
     const categorias = {};
@@ -129,6 +137,6 @@
     return {categorias, meses};
   }
 
-  root.L = {MESES, vals, parseN, fmt, monthKey, monthLabel, monthName, addMonths, daysInMonth, dueDay, lineKey, realPorLinea, realDe, lineStatus, totals, planLine, newMonth, planFromGastos, importV1};
+  root.L = {MESES, vals, parseN, fmt, monthKey, monthLabel, monthName, addMonths, daysInMonth, dueDay, lineKey, realPorLinea, realDe, lineStatus, totals, planLine, newMonth, planFromGastos, merchantKey, importV1};
   if(typeof module !== 'undefined') module.exports = root.L;
 })(typeof window !== 'undefined' ? window : globalThis);

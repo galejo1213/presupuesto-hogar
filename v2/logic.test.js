@@ -89,6 +89,14 @@ a.deepStrictEqual(plan, [
   {catId: 'comida', subId: 'mercado', label: 'Mercado', monto: 700, dia: 0},
 ]);
 
+// merchantKey: same place, different payments → same key; safe as a Firebase key
+a.strictEqual(L.merchantKey('TIM HORTONS #1234'), 'tim_hortons');
+a.strictEqual(L.merchantKey('Tim Hortons #0877'), 'tim_hortons');
+a.strictEqual(L.merchantKey('SQ *Café Pamenar'), 'cafe_pamenar');
+a.strictEqual(L.merchantKey('PetSmart.ca'), 'petsmart_ca');
+a.strictEqual(L.merchantKey('$#[]/.'), '');
+a.strictEqual(L.merchantKey(undefined), '');
+
 // importV1
 const v = L.importV1(
   {'2026-08': {income: {ella: [{id: 'i1', label: 'Salario', amount: '4.400'}]}, budget: '3000', expenses: [{id: 'e1', catId: 'comida', subId: 'mercado', amount: 50, date: 1}]}, basura: {}},

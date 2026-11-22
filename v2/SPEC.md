@@ -24,6 +24,7 @@ v2/config
   personas/{p1|p2}: { nombre, base }
   categorias/{catId}: { label, icon, orden, subs/{subId}: label }
   fijos/{id}: { label, catId, subId, monto, dia }   ← plan recurrente (dia 0 = sin fecha)
+  comercios/{clave}: { catId, subId }               ← categoría aprendida por comercio de Apple Pay
   version: 3                                          ← modelo plan + pagos
 v2/meses/{YYYY-MM}
   ingresos/{p1|p2}/{id}: { label, monto }            ← base precargada + extras (monto < 0 = descuento)
