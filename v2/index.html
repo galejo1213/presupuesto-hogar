@@ -345,18 +345,21 @@ async function onData(snap){
 // One-time switch to the plan model: the v1 December amounts become December's plan (nothing paid yet),
 // and the lines they mark "Cada mes" become the recurring plan for the following months.
 async function migracionSheet(){
-  let gastos = (meses[PLAN_MONTH] || {}).gastos, imported = null;
-  if(!gastos || !Object.keys(gastos).length){
-    try { imported = L.importV1({[PLAN_MONTH]: (await db.ref('meses/' + PLAN_MONTH).get()).val()}, null).meses[PLAN_MONTH]; } catch(e){}
-    gastos = imported && imported.gastos;
-  }
+  // The plan comes from v1 itself, so payments registered in v2 meanwhile are neither counted nor deleted.
+  let imported = null;
+  try { imported = L.importV1({[PLAN_MONTH]: (await db.ref('meses/' + PLAN_MONTH).get()).val()}, null).meses[PLAN_MONTH]; } catch(e){}
+  const gastos = (imported && imported.gastos) || (meses[PLAN_MONTH] || {}).gastos || {};
   const lines = L.planFromGastos(gastos, config.categorias);
   const rec = lines.map(() => true);
   const finish = () => {
+    if(config.version === 3) return closeSheet(); // the other phone already converted
     const tpl = {}, plan = {}, upd = {'config/version': 3};
     lines.forEach((l, i) => { const id = uid(); plan[id] = l; if(rec[i]) tpl[id] = l; });
     upd['config/fijos'] = tpl;
-    if(meses[PLAN_MONTH]){ upd['meses/' + PLAN_MONTH + '/fijos'] = plan; upd['meses/' + PLAN_MONTH + '/gastos'] = null; }
+    if(meses[PLAN_MONTH]){
+      upd['meses/' + PLAN_MONTH + '/fijos'] = plan;
+      Object.keys(gastos).forEach(id => upd['meses/' + PLAN_MONTH + '/gastos/' + id] = null); // only the imported v1 amounts
+    }
     else if(lines.length) upd['meses/' + PLAN_MONTH] = Object.assign({}, imported, {fijos: plan, gastos: {}});
     // Lines from the old model (fixed payments with a paid flag) don't apply anymore.
     Object.keys(meses).forEach(k => { if(k !== PLAN_MONTH) upd['meses/' + k + '/fijos'] = k > PLAN_MONTH ? tpl : null; });
@@ -457,7 +460,7 @@ function vInicio(){
       <button class="chk ${st.code === 'pagado' ? 'on' : ''}" data-act="togglePago" data-id="${id}" aria-label="${st.code === 'pagado' ? 'Desmarcar' : 'Marcar'} ${esc(l.label)} como pagado"></button>
       <button class="frow-main" data-act="linea" data-id="${id}">
         <span class="day">${l.dia ? L.dueDay(cur, l.dia) : `<span style="font-size:17px">${esc(c.icon)}</span>`}</span>
-        <span class="flabel"><b>${esc(l.label)}</b><em class="pill">${m ? st.label : 'Falta monto'}</em>${st.code === 'parcial' ? `<span class="cbar"><i style="width:${(r / m * 100).toFixed(1)}%"></i></span>` : ''}</span>
+        <span class="flabel"><b>${esc(l.label)}</b><em class="pill">${m || r ? st.label : 'Falta monto'}</em>${st.code === 'parcial' ? `<span class="cbar"><i style="width:${(r / m * 100).toFixed(1)}%"></i></span>` : ''}</span>
         <span class="amt num m" style="text-align:right">${amt}</span>
       </button></div>`;
   };
@@ -685,7 +688,10 @@ function lineaSheet(id){
       if(rec){
         upd['config/fijos/' + lid] = data;
         Object.keys(meses).forEach(k => { if(k > cur && !lineError(data, lid, meses[k].fijos)) upd['meses/' + k + '/fijos/' + lid] = data; });
-      } else if((config.fijos || {})[lid]) upd['config/fijos/' + lid] = null;
+      } else if((config.fijos || {})[lid]){
+        upd['config/fijos/' + lid] = null;
+        Object.keys(meses).forEach(k => { if(k > cur) upd['meses/' + k + '/fijos/' + lid] = null; });
+      }
       patch(upd); closeSheet(); toast('Plan actualizado');
     };
     if(id) b.querySelector('#l-del').onclick = () => {

@@ -45,7 +45,7 @@
   // today: Date. real: amount paid so far for this line. dia 0/empty = no due date.
   function lineStatus(l, real, k, today){
     const monto = parseN(l.monto);
-    if(monto > 0 && real >= monto) return {code:'pagado', label:'Pagado'};
+    if(real > 0 && real >= monto) return {code:'pagado', label:'Pagado'};
     if(real > 0) return {code:'parcial', label:'Faltan ' + fmt(monto - real)};
     const cur = monthKey(today);
     if(!l.dia) return k < cur ? {code:'atrasado', label:'No pagado'} : {code:'mes', label:'Este mes'};

@@ -35,6 +35,8 @@ a.strictEqual(st({monto: 100, dia: 10}, 0).code, 'atrasado');
 a.strictEqual(st({monto: 100, dia: 21}, 0).code, 'hoy');
 a.strictEqual(st({monto: 100, dia: 23}, 0).label, 'En 2 días');
 a.strictEqual(st({monto: 100, dia: 28}, 0).code, 'pendiente');
+a.strictEqual(st({monto: 0}, 50).code, 'pagado');              // line without amount, paid anyway
+a.strictEqual(st({monto: 0}, 0).code, 'mes');
 a.strictEqual(st({monto: 100}, 0).code, 'mes');                 // no due date
 a.strictEqual(st({monto: 100}, 0, '2026-10').code, 'atrasado'); // past month, unpaid
 a.strictEqual(st({monto: 100, dia: 1}, 0, '2026-12').code, 'pendiente');
